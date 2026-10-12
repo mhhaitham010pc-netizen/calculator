@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>آلة حاسبة</title>
+<style>
+  :root {
+    --bg: #eef1f4; --body: #ffffff; --screen: #1d2733; --screen-text: #f2f5f8; --screen-dim: #8fa0b2;
+    --key: #f1f4f7; --key-text: #1d2733; --op: #dfe8f3; --op-text: #1b4f8f;
+    --accent: #1b6ef3; --accent-text: #ffffff; --clear: #fbe4e1; --clear-text: #b3281b;
+    --shadow: 0 10px 30px rgba(20, 40, 70, .12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11161c; --body: #1a222b; --screen: #0c1015; --screen-text: #f2f5f8; --screen-dim: #7d8da0;
+      --key: #26313d; --key-text: #eaf0f6; --op: #2c3b4e; --op-text: #9cc2f5;
+      --clear: #4a2a27; --clear-text: #ffb4aa; --shadow: 0 10px 30px rgba(0, 0, 0, .4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; padding: 16px;
+  }
+  .calc { width: 100%; max-width: 340px; background: var(--body); border-radius: 22px; padding: 16px; box-shadow: var(--shadow); }
+  .screen {
+    direction: ltr; background: var(--screen); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px;
+    min-height: 104px; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end;
+    overflow: hidden;
+  }
+  .history { color: var(--screen-dim); font-size: 15px; min-height: 20px; word-break: break-all; text-align: right; }
+  .value { color: var(--screen-text); font-size: 40px; font-weight: 600; line-height: 1.2; word-break: break-all; text-align: right; font-variant-numeric: tabular-nums; }
+  .keys { direction: ltr; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  button {
+    font: inherit; font-size: 22px; height: 60px; border: 0; border-radius: 14px; cursor: pointer;
+    background: var(--key); color: var(--key-text); transition: transform .06s ease, filter .15s ease;
+  }
+  button:hover { filter: brightness(.96); }
+  button:active { transform: scale(.95); }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .op { background: var(--op); color: var(--op-text); }
+  .clear { background: var(--clear); color: var(--clear-text); }
+  .eq { background: var(--accent); color: var(--accent-text); }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style>
+</head>
+<body>
+<main class="calc" aria-label="آلة حاسبة">
+  <div class="screen" aria-live="polite">
+    <div class="history" id="history"></div>
+    <div class="value" id="value">0</div>
+  </div>
+  <div class="keys" id="keys">
+    <button class="clear" data-act="clear">C</button>
+    <button class="op" data-act="sign">±</button>
+    <button class="op" data-act="percent">%</button>
+    <button class="op" data-act="op" data-op="÷">÷</button>
+
+    <button data-act="num" data-n="7">7</button>
+    <button data-act="num" data-n="8">8</button>
+    <button data-act="num" data-n="9">9</button>
+    <button class="op" data-act="op" data-op="×">×</button>
+
+    <button data-act="num" data-n="4">4</button>
+    <button data-act="num" data-n="5">5</button>
+    <button data-act="num" data-n="6">6</button>
+    <button class="op" data-act="op" data-op="−">−</button>
+
+    <button data-act="num" data-n="1">1</button>
+    <button data-act="num" data-n="2">2</button>
+    <button data-act="num" data-n="3">3</button>
+    <button class="op" data-act="op" data-op="+">+</button>
+
+    <button data-act="num" data-n="0">0</button>
+    <button data-act="dot">.</button>
+    <button data-act="back" aria-label="مسح رقم">⌫</button>
+    <button class="eq" data-act="eq">=</button>
+  </div>
+</main>
+
+<script>
+(function () {
+  var cur = "0", prev = null, op = null, fresh = false, error = false;
+  var valueEl = document.getElementById("value");
+  var histEl = document.getElementById("history");
+
+  function fmt(s) {
+    if (error) return s;
+    var neg = s[0] === "-", body = neg ? s.slice(1) : s;
+    var parts = body.split("."), int = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return (neg ? "-" : "") + int + (parts.length > 1 ? "." + parts[1] : "");
+  }
+  function clean(n) {
+    if (!isFinite(n)) return null;
+    var r = parseFloat(n.toPrecision(12));
+    var s = String(r);
+    if (s.indexOf("e") !== -1) s = r.toExponential(6).replace(/\.?0+e/, "e");
+    return s;
+  }
+  function calc(a, b, o) {
+    a = parseFloat(a); b = parseFloat(b);
+    if (o === "+") return a + b;
+    if (o === "−") return a - b;
+    if (o === "×") return a * b;
+    if (o === "÷") return b === 0 ? NaN : a / b;
+    return b;
+  }
+  function show() {
+    valueEl.textContent = fmt(cur);
+    var size = cur.length > 14 ? 22 : cur.length > 10 ? 30 : 40;
+    valueEl.style.fontSize = size + "px";
+    histEl.textContent = prev !== null && op ? fmt(prev) + " " + op : "";
+  }
+  function fail() { cur = "لا يمكن القسمة على صفر"; error = true; prev = null; op = null; show(); }
+  function reset() { cur = "0"; prev = null; op = null; fresh = false; error = false; }
+
+  function num(d) {
+    if (error) reset();
+    if (fresh) { cur = "0"; fresh = false; }
+    if (cur.replace(/[-.]/g, "").length >= 15) return;
+    cur = cur === "0" ? d : cur === "-0" ? "-" + d : cur + d;
+  }
+  function dot() {
+    if (error) reset();
+    if (fresh) { cur = "0"; fresh = false; }
+    if (cur.indexOf(".") === -1) cur += ".";
+  }
+  function back() {
+    if (error) { reset(); return; }
+    if (fresh) return;
+    cur = cur.length > 1 && !(cur.length === 2 && cur[0] === "-") ? cur.slice(0, -1) : "0";
+  }
+  function sign() {
+    if (error) return;
+    if (cur !== "0") cur = cur[0] === "-" ? cur.slice(1) : "-" + cur;
+  }
+  function percent() {
+    if (error) return;
+    var r = clean(parseFloat(cur) / 100);
+    if (r !== null) { cur = r; fresh = true; }
+  }
+  function setOp(o) {
+    if (error) return;
+    if (op && prev !== null && !fresh) {
+      var r = calc(prev, cur, op);
+      var s = clean(r);
+      if (s === null) { fail(); return; }
+      prev = s; cur = s;
+    } else {
+      prev = cur;
+    }
+    op = o; fresh = true;
+  }
+  function eq() {
+    if (error || !op || prev === null) return;
+    var s = clean(calc(prev, cur, op));
+    if (s === null) { fail(); return; }
+    histEl.textContent = fmt(prev) + " " + op + " " + fmt(cur) + " =";
+    cur = s; prev = null; op = null; fresh = true;
+    valueEl.textContent = fmt(cur);
+    valueEl.style.fontSize = (cur.length > 14 ? 22 : cur.length > 10 ? 30 : 40) + "px";
+  }
+
+  document.getElementById("keys").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    var a = b.dataset.act;
+    if (a === "num") num(b.dataset.n);
+    else if (a === "dot") dot();
+    else if (a === "op") setOp(b.dataset.op);
+    else if (a === "eq") { eq(); return; }
+    else if (a === "clear") reset();
+    else if (a === "back") back();
+    else if (a === "sign") sign();
+    else if (a === "percent") percent();
+    show();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var k = e.key;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^[0-9]$/.test(k)) num(k);
+    else if (k === "." || k === ",") dot();
+    else if (k === "+") setOp("+");
+    else if (k === "-") setOp("−");
+    else if (k === "*") setOp("×");
+    else if (k === "/") { e.preventDefault(); setOp("÷"); }
+    else if (k === "%") percent();
+    else if (k === "Enter" || k === "=") { e.preventDefault(); eq(); return; }
+    else if (k === "Backspace") back();
+    else if (k === "Escape" || k === "Delete") reset();
+    else return;
+    show();
+  });
+
+  show();
+})();
+</script>
+</body>
+</html>
